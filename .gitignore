@@ -40,6 +40,7 @@ env/
 # Google API credentials
 credentials.json
 client_secret.json
+google-client-secret.json
 token.json
 
 # Node.js
