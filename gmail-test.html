@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gmail Authentication Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #1a73e8;
+            margin-bottom: 20px;
+        }
+        .card {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .instructions {
+            background-color: #f8f9fa;
+            border-left: 4px solid #1a73e8;
+        }
+        button {
+            background-color: #1a73e8;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #0d62c9;
+        }
+        .status {
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        .success {
+            color: #0d904f;
+        }
+        .warning {
+            color: #f29900;
+        }
+        .error {
+            color: #d93025;
+        }
+        pre {
+            background-color: #f5f5f5;
+            border-radius: 4px;
+            padding: 10px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <h1>Gmail Authentication Test</h1>
+    
+    <div class="card instructions">
+        <h2>Instructions</h2>
+        <ol>
+            <li>Make sure the backend server is running on port 8000 (<code>cd backend && uvicorn app.main:app --reload --port 8000</code>)</li>
+            <li>Click "Check Backend Status" to verify the backend is accessible</li>
+            <li>Click "Connect to Gmail" to start the authentication flow</li>
+            <li>After authentication, click "Check Auth Status" to verify your connection</li>
+            <li>If authenticated, your Gmail profile information will appear</li>
+        </ol>
+    </div>
+
+    <div class="card">
+        <h2>Backend Server Status</h2>
+        <button id="checkBackendBtn">Check Backend Status</button>
+        <div id="backendStatus" class="status">Unknown</div>
+        <pre id="backendDetails"></pre>
+    </div>
+    
+    <div class="card">
+        <h2>Gmail Authentication</h2>
+        <button id="connectBtn">Connect to Gmail</button>
+        <button id="checkAuthBtn">Check Auth Status</button>
+        <button id="logoutBtn">Logout</button>
+        <div id="authStatus" class="status">Not authenticated</div>
+    </div>
+    
+    <div class="card">
+        <h2>User Profile</h2>
+        <div id="profileInfo">Not available</div>
+    </div>
+    
+    <div class="card">
+        <h2>API Test Results</h2>
+        <pre id="results">No tests run yet</pre>
+    </div>
+
+    <script>
+        const BACKEND_URL = 'http://localhost:8000/api';
+        
+        // Check if backend server is running
+        document.getElementById('checkBackendBtn').addEventListener('click', async function() {
+            const backendStatus = document.getElementById('backendStatus');
+            const backendDetails = document.getElementById('backendDetails');
+            
+            backendStatus.textContent = 'Checking...';
+            backendStatus.className = 'status';
+            
+            try {
+                // First try a simple fetch with no-cors to see if the server is running
+                await fetch(`${BACKEND_URL}/health`, { mode: 'no-cors' });
+                
+                // If no error, try a proper fetch to get the response
+                const response = await fetch(`${BACKEND_URL}/health`);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    backendStatus.textContent = 'Backend server is running!';
+                    backendStatus.className = 'status success';
+                    backendDetails.textContent = JSON.stringify(data, null, 2);
+                } else {
+                    backendStatus.textContent = `Backend server returned status: ${response.status}`;
+                    backendStatus.className = 'status warning';
+                    backendDetails.textContent = await response.text();
+                }
+            } catch (error) {
+                backendStatus.textContent = 'Backend server is not accessible';
+                backendStatus.className = 'status error';
+                backendDetails.textContent = `Error: ${error.message}\n\nMake sure your backend server is running with:\ncd backend && uvicorn app.main:app --reload --port 8000`;
+            }
+            
+            // Check available endpoints
+            try {
+                const results = document.getElementById('results');
+                results.textContent = 'Checking available API endpoints...\n';
+                
+                const endpoints = [
+                    '/gmail/auth_url',
+                    '/gmail/auth_status',
+                    '/docs'  // Check if Swagger UI is available
+                ];
+                
+                for (const endpoint of endpoints) {
+                    try {
+                        const response = await fetch(`${BACKEND_URL}${endpoint}`, {
+                            headers: {
+                                'Accept': 'application/json'
+                            }
+                        });
+                        results.textContent += `${endpoint}: ${response.status} ${response.statusText}\n`;
+                    } catch (error) {
+                        results.textContent += `${endpoint}: Error - ${error.message}\n`;
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking endpoints:', error);
+            }
+        });
+        
+        // Connect to Gmail
+        document.getElementById('connectBtn').addEventListener('click', async function() {
+            const authStatus = document.getElementById('authStatus');
+            const results = document.getElementById('results');
+            
+            authStatus.textContent = 'Connecting...';
+            authStatus.className = 'status';
+            
+            try {
+                const response = await fetch(`${BACKEND_URL}/gmail/auth_url`);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const authUrl = data.auth_url;
+                    
+                    results.textContent = `Auth URL obtained: ${authUrl}\n\nRedirecting to Google authentication...`;
+                    
+                    // Open the auth URL in a new window
+                    window.open(authUrl, '_blank');
+                    
+                    authStatus.textContent = 'Authentication in progress. Complete the Google login and then click "Check Auth Status"';
+                    authStatus.className = 'status warning';
+                } else {
+                    authStatus.textContent = `Failed to get auth URL: ${response.status}`;
+                    authStatus.className = 'status error';
+                    results.textContent = await response.text();
+                }
+            } catch (error) {
+                authStatus.textContent = 'Connection error';
+                authStatus.className = 'status error';
+                results.textContent = `Error: ${error.message}`;
+            }
+        });
+        
+        // Check authentication status
+        document.getElementById('checkAuthBtn').addEventListener('click', async function() {
+            const authStatus = document.getElementById('authStatus');
+            const profileInfo = document.getElementById('profileInfo');
+            const results = document.getElementById('results');
+            
+            authStatus.textContent = 'Checking...';
+            authStatus.className = 'status';
+            
+            try {
+                const response = await fetch(`${BACKEND_URL}/gmail/auth_status`);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    if (data.authenticated) {
+                        authStatus.textContent = 'Authenticated';
+                        authStatus.className = 'status success';
+                        
+                        // Display user profile information
+                        if (data.user_info) {
+                            profileInfo.innerHTML = `
+                                <p><strong>Email:</strong> ${data.user_info.email || 'N/A'}</p>
+                                <p><strong>Name:</strong> ${data.user_info.name || 'N/A'}</p>
+                                <p><strong>Picture:</strong> ${data.user_info.picture ? `<img src="${data.user_info.picture}" alt="Profile picture" width="50">` : 'N/A'}</p>
+                            `;
+                        } else {
+                            profileInfo.textContent = 'User information not available';
+                        }
+                    } else {
+                        authStatus.textContent = 'Not authenticated';
+                        authStatus.className = 'status warning';
+                        profileInfo.textContent = 'Not available';
+                    }
+                    
+                    results.textContent = JSON.stringify(data, null, 2);
+                } else {
+                    authStatus.textContent = `Failed to check auth status: ${response.status}`;
+                    authStatus.className = 'status error';
+                    results.textContent = await response.text();
+                }
+            } catch (error) {
+                authStatus.textContent = 'Connection error';
+                authStatus.className = 'status error';
+                results.textContent = `Error: ${error.message}`;
+            }
+        });
+        
+        // Logout
+        document.getElementById('logoutBtn').addEventListener('click', async function() {
+            const authStatus = document.getElementById('authStatus');
+            const profileInfo = document.getElementById('profileInfo');
+            const results = document.getElementById('results');
+            
+            authStatus.textContent = 'Logging out...';
+            authStatus.className = 'status';
+            
+            try {
+                const response = await fetch(`${BACKEND_URL}/gmail/logout`, {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    authStatus.textContent = 'Logged out';
+                    authStatus.className = 'status warning';
+                    profileInfo.textContent = 'Not available';
+                    results.textContent = 'Logout successful';
+                } else {
+                    authStatus.textContent = `Failed to logout: ${response.status}`;
+                    authStatus.className = 'status error';
+                    results.textContent = await response.text();
+                }
+            } catch (error) {
+                authStatus.textContent = 'Connection error';
+                authStatus.className = 'status error';
+                results.textContent = `Error: ${error.message}`;
+            }
+        });
+    </script>
+</body>
+</html> 
