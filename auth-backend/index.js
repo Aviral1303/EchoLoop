@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const { router: authRoutes, connectedUser } = require('./routes/auth');
+const { router: authRoutes } = require('./routes/auth');
 const emailsRoutes = require('./routes/emails');
 
 // Load environment variables

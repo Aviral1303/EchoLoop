@@ -1,17 +1,10 @@
 const express = require('express');
 const { getAuthURL, getTokens } = require('../auth/googleAuth');
 const gmailService = require('../services/gmailService');
+const emailIntelligenceService = require('../services/emailIntelligenceService');
+const { getConnectedUser, setConnectedUser, isUserConnected, disconnectUser } = require('../state/userState');
 
 const router = express.Router();
-
-// Simple in-memory storage (in production, use a database)
-let connectedUser = {
-  isConnected: false,
-  email: '',
-  name: '',
-  tokens: null,
-  connectedAt: null
-};
 
 /**
  * GET /auth/google
@@ -60,8 +53,8 @@ router.get('/callback', async (req, res) => {
     // Exchange authorization code for tokens
     const tokenData = await getTokens(code);
     
-    // Store user connection data
-    connectedUser = {
+    // Store user connection data using shared state
+    setConnectedUser({
       isConnected: true,
       email: tokenData.user_info.email,
       name: tokenData.user_info.name,
@@ -71,7 +64,7 @@ router.get('/callback', async (req, res) => {
         expires_at: tokenData.expiry_date
       },
       connectedAt: new Date().toISOString()
-    };
+    });
     
     // Log the tokens (in production, you'd save these securely)
     console.log('🎉 OAuth Success! Token Data:');
@@ -83,7 +76,7 @@ router.get('/callback', async (req, res) => {
     
     // For now, we'll just log success and redirect
     console.log('✅ Gmail OAuth completed successfully!');
-    console.log('💾 User connection stored in memory');
+    console.log('💾 User connection stored in shared state');
     
     // Redirect to frontend settings page with success parameter
     res.redirect('http://localhost:3001/dashboard/settings?connected=true');
@@ -102,10 +95,10 @@ router.get('/callback', async (req, res) => {
  */
 router.get('/status', (req, res) => {
   try {
+    const connectedUser = getConnectedUser();
+    
     // Check if user is connected and tokens are still valid
-    const isTokenValid = connectedUser.isConnected && 
-                        connectedUser.tokens && 
-                        new Date(connectedUser.tokens.expires_at) > new Date();
+    const isTokenValid = isUserConnected();
     
     if (isTokenValid) {
       res.json({
@@ -140,14 +133,8 @@ router.post('/disconnect', (req, res) => {
   try {
     console.log('🔌 Disconnecting Gmail account...');
     
-    // Clear stored connection data
-    connectedUser = {
-      isConnected: false,
-      email: '',
-      name: '',
-      tokens: null,
-      connectedAt: null
-    };
+    // Clear stored connection data using shared state
+    disconnectUser();
     
     console.log('✅ Gmail account disconnected successfully');
     
@@ -169,6 +156,8 @@ router.post('/disconnect', (req, res) => {
  */
 router.get('/user', (req, res) => {
   try {
+    const connectedUser = getConnectedUser();
+    
     if (connectedUser.isConnected) {
       res.json({
         email: connectedUser.email,
@@ -196,6 +185,8 @@ router.get('/user', (req, res) => {
 router.get('/test-gmail', async (req, res) => {
   try {
     console.log('🧪 Testing Gmail service...');
+    
+    const connectedUser = getConnectedUser();
     
     // Check if user is connected
     if (!connectedUser.isConnected || !connectedUser.tokens) {
@@ -245,4 +236,94 @@ router.get('/test-gmail', async (req, res) => {
   }
 });
 
-module.exports = { router, connectedUser }; 
+/**
+ * GET /auth/emails
+ * Get emails from the connected Gmail account - production endpoint
+ * This is identical to test-gmail but for production use with more emails
+ */
+router.get('/emails', async (req, res) => {
+  try {
+    console.log('📧 AUTH: Fetching emails...');
+    
+    const connectedUser = getConnectedUser();
+    
+    // Check if user is connected
+    if (!connectedUser.isConnected || !connectedUser.tokens) {
+      return res.status(401).json({
+        error: 'No Gmail account connected',
+        message: 'Please connect your Gmail account first'
+      });
+    }
+    
+    // Get number of emails to fetch (default 10, max 50)
+    const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+    
+    console.log(`📨 Fetching ${limit} emails for ${connectedUser.email}`);
+    
+    // Initialize Gmail service with stored tokens
+    const initialized = gmailService.initialize(connectedUser.tokens);
+    if (!initialized) {
+      return res.status(500).json({
+        error: 'Failed to initialize Gmail service'
+      });
+    }
+    
+    // Fetch emails with full content
+    const emails = await gmailService.getSimpleEmailsListWithContent(limit);
+    
+    console.log(`✅ AUTH: Successfully fetched ${emails.length} emails`);
+    
+    // Return emails in format expected by frontend
+    res.json({
+      success: true,
+      message: `Successfully fetched ${emails.length} emails`,
+      count: emails.length,
+      user: {
+        email: connectedUser.email,
+        name: connectedUser.name
+      },
+      emails: emails.map(email => {
+        // Add AI analysis to each email
+        const aiAnalysis = emailIntelligenceService.analyzeEmail({
+          subject: email.subject,
+          content: email.content,
+          sender: email.from
+        });
+
+        return {
+          id: email.id,
+          threadId: email.threadId,
+          subject: email.subject || '(No Subject)',
+          from: email.from || '(Unknown Sender)',
+          to: email.to,
+          date: email.date,
+          snippet: email.snippet || '',
+          content: email.content || email.snippet || '',
+          unread: email.unread,
+          starred: email.starred,
+          // Add formatted date for easier frontend use
+          formattedDate: email.date ? new Date(email.date).toLocaleDateString() : '',
+          // Add short snippet for display
+          shortSnippet: email.snippet ? 
+            (email.snippet.length > 100 ? email.snippet.substring(0, 100) + '...' : email.snippet) 
+            : '',
+          // AI analysis data
+          category: aiAnalysis.category,
+          sentiment: aiAnalysis.sentiment,
+          actions: aiAnalysis.actions,
+          tasks: aiAnalysis.tasks,
+          thread: aiAnalysis.thread
+        };
+      })
+    });
+    
+  } catch (error) {
+    console.error('❌ AUTH: Error fetching emails:', error);
+    res.status(500).json({
+      error: 'Failed to fetch emails',
+      message: error.message
+    });
+  }
+});
+
+module.exports = { router }; 

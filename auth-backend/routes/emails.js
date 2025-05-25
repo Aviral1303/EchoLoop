@@ -1,51 +1,30 @@
 const express = require('express');
 const gmailService = require('../services/gmailService');
+const { getConnectedUser, isUserConnected } = require('../state/userState');
 
 const router = express.Router();
 
 /**
  * GET /api/emails
  * Get a list of emails from the connected Gmail account
- * This endpoint copies the EXACT logic from the working test endpoint
+ * Using shared state module to access connectedUser properly
  */
 router.get('/', async (req, res) => {
   try {
     console.log('📧 API: Fetching emails...');
     
-    // EXACT COPY of working test endpoint logic - we'll access the connectedUser directly
-    // from the auth module's internal state, but we need to do it the same way the test does
+    // Get connected user from shared state
+    const connectedUser = getConnectedUser();
     
-    // First, let's get the module and check what we have access to
-    const authModule = require('./auth');
-    console.log('📧 Auth module keys:', Object.keys(authModule));
+    console.log('📧 connectedUser status:', {
+      isConnected: connectedUser?.isConnected,
+      hasEmail: !!connectedUser?.email,
+      hasTokens: !!connectedUser?.tokens
+    });
     
-    // The working test endpoint must be accessing connectedUser somehow
-    // Let's try both approaches
-    let connectedUser;
-    
-    // Try method 1: direct access
-    if (authModule.connectedUser) {
-      connectedUser = authModule.connectedUser;
-      console.log('📧 Got connectedUser via direct access');
-    }
-    
-    // Try method 2: destructuring (like test endpoint)
-    if (!connectedUser) {
-      try {
-        const { connectedUser: cu } = authModule;
-        connectedUser = cu;
-        console.log('📧 Got connectedUser via destructuring');
-      } catch (e) {
-        console.log('📧 Destructuring failed:', e.message);
-      }
-    }
-    
-    console.log('📧 Final connectedUser:', connectedUser ? 'Found' : 'Not found');
-    console.log('📧 isConnected:', connectedUser?.isConnected);
-    console.log('📧 hasTokens:', !!connectedUser?.tokens);
-    
-    // Check if user is connected (EXACT same logic as test endpoint)
-    if (!connectedUser.isConnected || !connectedUser.tokens) {
+    // Check if user is connected
+    if (!isUserConnected()) {
+      console.log('❌ No Gmail account connected');
       return res.status(401).json({
         error: 'No Gmail account connected',
         message: 'Please connect your Gmail account first'
@@ -57,7 +36,7 @@ router.get('/', async (req, res) => {
     
     console.log(`📨 Fetching ${limit} emails for ${connectedUser.email}`);
     
-    // Initialize Gmail service (EXACT same as test endpoint)
+    // Initialize Gmail service with stored tokens
     const initialized = gmailService.initialize(connectedUser.tokens);
     if (!initialized) {
       return res.status(500).json({
@@ -65,12 +44,12 @@ router.get('/', async (req, res) => {
       });
     }
     
-    // Try to fetch emails (EXACT same as test endpoint)
+    // Fetch emails
     const emails = await gmailService.getSimpleEmailsList(limit);
     
     console.log(`✅ API: Successfully fetched ${emails.length} emails`);
     
-    // Return emails in EXACT same format as test endpoint, but enhanced for frontend
+    // Return emails in format expected by frontend
     res.json({
       success: true,
       message: `Successfully fetched ${emails.length} emails`,
