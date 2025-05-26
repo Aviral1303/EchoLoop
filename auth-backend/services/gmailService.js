@@ -86,6 +86,82 @@ class GmailService {
   }
 
   /**
+   * Extract raw HTML content from Gmail payload without any processing
+   * @param {Object} payload - Gmail message payload
+   * @returns {string} Raw HTML content
+   */
+  extractRawHtmlContent(payload) {
+    try {
+      // First try to get HTML content
+      let htmlContent = this.extractTextContent(payload, 'text/html');
+      
+      // If no HTML, get plain text and wrap it in basic HTML
+      if (!htmlContent) {
+        const textContent = this.extractTextContent(payload, 'text/plain');
+        if (textContent) {
+          // Convert plain text to basic HTML
+          htmlContent = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <meta charset="UTF-8">
+              <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; padding: 20px; color: #333; }
+                pre { white-space: pre-wrap; word-wrap: break-word; }
+              </style>
+            </head>
+            <body>
+              <pre>${textContent.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+            </body>
+            </html>
+          `;
+        }
+      }
+      
+      return htmlContent || '';
+    } catch (error) {
+      console.error('❌ Error extracting raw HTML content:', error);
+      return '';
+    }
+  }
+
+  /**
+   * Extract email content in multiple formats (text, html)
+   * @param {Object} payload - Gmail message payload
+   * @returns {Object} Content in different formats
+   */
+  extractEmailContentMultiFormat(payload) {
+    try {
+      // Get raw HTML content
+      const rawHtml = this.extractRawHtmlContent(payload);
+      
+      // Get plain text content
+      let textContent = this.extractTextContent(payload, 'text/plain');
+      
+      // If no plain text, convert HTML to text
+      if (!textContent && rawHtml) {
+        textContent = this.convertHtmlToText(rawHtml);
+      }
+      
+      // Clean up the text content
+      const cleanedText = this.cleanEmailContent(textContent);
+      
+      return {
+        rawHtml: rawHtml || '',
+        textContent: cleanedText || textContent || '',
+        hasHtml: !!rawHtml
+      };
+    } catch (error) {
+      console.error('❌ Error extracting multi-format email content:', error);
+      return {
+        rawHtml: '',
+        textContent: '',
+        hasHtml: false
+      };
+    }
+  }
+
+  /**
    * Recursively extract text content from email parts
    * @param {Object} payload - Gmail message payload
    * @param {string} mimeType - Target MIME type to extract
@@ -271,14 +347,16 @@ class GmailService {
       const headers = email.payload.headers;
       const subject = this.getHeaderValue(headers, 'Subject');
       
-      // Extract and clean email body content
-      const bodyContent = this.extractEmailContent(email.payload);
+      // Extract email content in multiple formats
+      const contentData = this.extractEmailContentMultiFormat(email.payload);
       
-      console.log(`✅ Fetched and cleaned email: ${subject}`);
+      console.log(`✅ Fetched and processed email: ${subject} (HTML: ${contentData.hasHtml})`);
       
       return {
         ...email,
-        bodyContent: bodyContent || email.snippet || ''
+        bodyContent: contentData.textContent || email.snippet || '',
+        rawHtml: contentData.rawHtml,
+        hasHtml: contentData.hasHtml
       };
     } catch (error) {
       console.error(`❌ Error fetching email details with body for ${messageId}:`, error);
@@ -319,6 +397,8 @@ class GmailService {
             date: this.getHeaderValue(headers, 'Date'),
             snippet: emailDetails.snippet || '',
             content: emailDetails.bodyContent || emailDetails.snippet || '',
+            rawHtml: emailDetails.rawHtml || '',
+            hasHtml: emailDetails.hasHtml || false,
             unread: emailDetails.labelIds?.includes('UNREAD') || false,
             starred: emailDetails.labelIds?.includes('STARRED') || false
           };

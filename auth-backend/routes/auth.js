@@ -299,6 +299,8 @@ router.get('/emails', async (req, res) => {
           date: email.date,
           snippet: email.snippet || '',
           content: email.content || email.snippet || '',
+          rawHtml: email.rawHtml || '',
+          hasHtml: email.hasHtml || false,
           unread: email.unread,
           starred: email.starred,
           // Add formatted date for easier frontend use

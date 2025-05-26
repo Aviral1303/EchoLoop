@@ -8,7 +8,8 @@ const emailsRoutes = require('./routes/emails');
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+// Use specific port for auth-backend, separate from frontend
+const PORT = process.env.AUTH_PORT || 3000;
 
 // Middleware
 app.use(cors({
